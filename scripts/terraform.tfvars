@@ -1,0 +1,10 @@
+aws_region         = "ap-south-1"
+project_name       = "cloud-lab"
+student_count      = 10
+instance_type      = "t3.xlarge"
+root_volume_size   = 100
+vpc_cidr           = "10.0.0.0/16"
+public_subnet_cidr = "10.0.1.0/24"
+allowed_ssh_cidrs  = ["0.0.0.0/0"]  # Change to specific IPs for security
+container_memory   = "1024m"
+container_cpu      = "1"
