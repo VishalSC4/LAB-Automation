@@ -57,12 +57,33 @@ resource "aws_instance" "lab_server" {
     }
   }
 
-  user_data = base64encode(templatefile("${path.module}/scripts/setup.sh", {
-    student_count       = var.student_count
-    credentials_json    = local.credentials_json
-    container_memory    = var.container_memory
-    container_cpu       = var.container_cpu
-  }))
+  user_data = base64encode(<<EOF
+#!/bin/bash
+set -e
+
+apt-get update -y
+apt-get install -y curl jq git
+
+# Save credentials JSON
+cat <<CREDENTIALS > /tmp/credentials.json
+${local.credentials_json}
+CREDENTIALS
+
+# Export variables for setup script
+export student_count=${var.student_count}
+export credentials_json=$(cat /tmp/credentials.json)
+export container_memory=${var.container_memory}
+export container_cpu=${var.container_cpu}
+
+# Download setup script from GitHub
+curl -o /tmp/setup.sh https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/cloud-lab/main/scripts/setup.sh
+
+chmod +x /tmp/setup.sh
+
+# Run setup
+bash /tmp/setup.sh
+EOF
+)
 
   tags = {
     Name = "${var.project_name}-server"
@@ -73,7 +94,7 @@ resource "aws_instance" "lab_server" {
   }
 }
 
-# Elastic IP for consistent access
+# Elastic IP
 resource "aws_eip" "lab_server" {
   instance = aws_instance.lab_server.id
   domain   = "vpc"
