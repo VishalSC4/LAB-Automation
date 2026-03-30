@@ -1,39 +1,36 @@
 #!/bin/bash
 
-# DEBUG + LOGGING
-
-set -ex
-exec > >(tee /var/log/cloud-lab-setup.log) 2>&1
+set -e
 
 echo "===== CLOUD LAB SETUP STARTED ====="
 
-# VARIABLES
+# Load environment variables
+source /etc/environment
+
 STUDENT_COUNT=${student_count:-10}
-CREDENTIALS_JSON=${credentials_json}
 CONTAINER_MEMORY=${container_memory:-512m}
 CONTAINER_CPU=${container_cpu:-0.5}
 
-# UPDATE SYSTEM
+CREDENTIALS_JSON=$(cat /root/credentials.json)
 
+# Install Docker if not exists
 apt-get update -y
+apt-get install -y docker.io jq
 
-# INSTALL DOCKER
-apt-get install -y docker.io
-systemctl start docker
 systemctl enable docker
+systemctl start docker
 
-sleep 15
+sleep 10
 
-# CREATE NETWORK
+# Create network
+docker network inspect student-network >/dev/null 2>&1 || docker network create student-network
 
-docker network create student-network || true
-
-# SETUP DIRECTORY
+# Create base directory
 mkdir -p /opt/cloud-lab
+
 cd /opt/cloud-lab
 
-# DOCKERFILE
-
+# Dockerfile
 cat << 'EOF' > Dockerfile
 FROM ubuntu:22.04
 
@@ -45,30 +42,36 @@ RUN apt-get update && apt-get install -y \
     curl \
     vim \
     nano \
+ && mkdir /var/run/sshd \
  && rm -rf /var/lib/apt/lists/*
-
-RUN mkdir /var/run/sshd
 
 EXPOSE 22
 
 CMD ["/usr/sbin/sshd","-D"]
 EOF
 
-# BUILD IMAGE
+# Build image
 docker build -t student-lab:latest .
 
-# CREATE CONTAINERS
 echo "Creating student containers..."
 
 for i in $(seq 1 $STUDENT_COUNT); do
 
   STUDENT="student$i"
   SSH_PORT=$((2200 + i))
-  HTTP_PORT=$((8000 + i))
+
+  PASSWORD=$(echo "$CREDENTIALS_JSON" | jq -r ".[$((i-1))].password")
+
+  # Validate password
+  if [[ -z "$PASSWORD" || ${#PASSWORD} -lt 8 ]]; then
+    echo "Skipping $STUDENT due to invalid password"
+    continue
+  fi
 
   echo "Creating $STUDENT..."
 
-  PASSWORD=$(echo "$CREDENTIALS_JSON" | jq -r ".[$((i-1))].password")
+  # Create persistent volume
+  mkdir -p /lab/$STUDENT
 
   docker run -d \
     --name $STUDENT \
@@ -78,20 +81,21 @@ for i in $(seq 1 $STUDENT_COUNT); do
     --cpus=$CONTAINER_CPU \
     --restart unless-stopped \
     -p $SSH_PORT:22 \
-    -p $HTTP_PORT:80 \
+    -v /lab/$STUDENT:/home/student \
     student-lab:latest
 
-  sleep 3
+  sleep 2
 
+  # Configure user
   docker exec $STUDENT bash -c "
-    useradd -m -s /bin/bash -G sudo student
+    useradd -m -s /bin/bash -G sudo student || true
     echo student:$PASSWORD | chpasswd
     echo 'student ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
   "
 
 done
 
-# VERIFY
-docker ps -a
+echo "===== RUNNING CONTAINERS ====="
+docker ps
 
 echo "===== CLOUD LAB SETUP COMPLETED ====="
