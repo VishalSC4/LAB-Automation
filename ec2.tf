@@ -1,6 +1,30 @@
-# ================================
+# =========================================
+# IAM ROLE + INSTANCE PROFILE
+# =========================================
+
+resource "aws_iam_role" "ec2_role" {
+  name = "${var.project_name}-ec2-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+    }]
+  })
+}
+
+resource "aws_iam_instance_profile" "ec2_profile" {
+  name = "${var.project_name}-profile"
+  role = aws_iam_role.ec2_role.name
+}
+
+# =========================================
 # EC2 INSTANCE
-# ================================
+# =========================================
 
 resource "aws_instance" "lab_server" {
   ami                    = data.aws_ami.ubuntu.id
@@ -20,40 +44,34 @@ resource "aws_instance" "lab_server" {
 #!/bin/bash
 set -ex
 
-# ================================
-# BASIC SETUP
-# ================================
+# Install packages
 apt-get update -y
 apt-get install -y curl jq git docker.io
 
+# Start Docker
 systemctl start docker
 systemctl enable docker
 
-# Wait for Docker to be ready
+# Wait for Docker
 sleep 20
 
-# ================================
-# SAVE VARIABLES
-# ================================
+# Save credentials JSON
 cat <<CREDENTIALS > /tmp/credentials.json
 ${local.credentials_json}
 CREDENTIALS
 
+# Export variables
 export student_count=${var.student_count}
 export credentials_json=$(cat /tmp/credentials.json)
 export container_memory=${var.container_memory}
 export container_cpu=${var.container_cpu}
 
-# ================================
-# DOWNLOAD SCRIPT
-# ================================
+# Download setup script
 curl -f -o /tmp/setup.sh https://raw.githubusercontent.com/VishalSC4/LAB-Automation/main/scripts/setup.sh
 
 chmod +x /tmp/setup.sh
 
-# ================================
-# RUN SCRIPT
-# ================================
+# Run setup
 bash /tmp/setup.sh
 
 EOF
@@ -66,4 +84,13 @@ EOF
   lifecycle {
     ignore_changes = [ami]
   }
+}
+
+# =========================================
+# ELASTIC IP
+# =========================================
+
+resource "aws_eip" "lab_server" {
+  instance = aws_instance.lab_server.id
+  domain   = "vpc"
 }
