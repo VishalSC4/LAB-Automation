@@ -1,6 +1,5 @@
-# =========================================
-# IAM ROLE + INSTANCE PROFILE
-# =========================================
+
+# IAM ROLE and INSTANCE PROFILE
 
 resource "aws_iam_role" "ec2_role" {
   name = "${var.project_name}-ec2-role"
@@ -22,9 +21,9 @@ resource "aws_iam_instance_profile" "ec2_profile" {
   role = aws_iam_role.ec2_role.name
 }
 
-# =========================================
+
 # EC2 INSTANCE
-# =========================================
+
 
 resource "aws_instance" "lab_server" {
   ami                    = data.aws_ami.ubuntu.id
@@ -86,9 +85,8 @@ EOF
   }
 }
 
-# =========================================
+
 # ELASTIC IP
-# =========================================
 
 resource "aws_eip" "lab_server" {
   instance = aws_instance.lab_server.id
