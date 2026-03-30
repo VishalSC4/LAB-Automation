@@ -1,5 +1,4 @@
-
-# IAM ROLE and INSTANCE PROFILE
+# IAM ROLE
 
 resource "aws_iam_role" "ec2_role" {
   name = "${var.project_name}-ec2-role"
@@ -21,9 +20,7 @@ resource "aws_iam_instance_profile" "ec2_profile" {
   role = aws_iam_role.ec2_role.name
 }
 
-
 # EC2 INSTANCE
-
 
 resource "aws_instance" "lab_server" {
   ami                    = data.aws_ami.ubuntu.id
@@ -41,37 +38,37 @@ resource "aws_instance" "lab_server" {
 
   user_data = base64encode(<<EOF
 #!/bin/bash
-set -ex
+set -e
 
-# Install packages
+# Install dependencies
 apt-get update -y
-apt-get install -y curl jq git docker.io
+apt-get install -y docker.io jq curl
 
-# Start Docker
-systemctl start docker
+# Enable Docker
 systemctl enable docker
+systemctl start docker
 
 # Wait for Docker
-sleep 20
+sleep 15
 
-# Save credentials JSON
-cat <<CREDENTIALS > /tmp/credentials.json
+# Save credentials securely (NOT logging)
+cat <<CREDENTIALS > /root/credentials.json
 ${local.credentials_json}
 CREDENTIALS
 
-# Export variables
-export student_count=${var.student_count}
-export credentials_json=$(cat /tmp/credentials.json)
-export container_memory=${var.container_memory}
-export container_cpu=${var.container_cpu}
+chmod 600 /root/credentials.json
+
+# Export variables (safe)
+echo "student_count=${var.student_count}" >> /etc/environment
+echo "container_memory=${var.container_memory}" >> /etc/environment
+echo "container_cpu=${var.container_cpu}" >> /etc/environment
 
 # Download setup script
-curl -f -o /tmp/setup.sh https://raw.githubusercontent.com/VishalSC4/LAB-Automation/main/scripts/setup.sh
+curl -fsSL -o /root/setup.sh https://raw.githubusercontent.com/VishalSC4/LAB-Automation/main/scripts/setup.sh
+chmod +x /root/setup.sh
 
-chmod +x /tmp/setup.sh
-
-# Run setup
-bash /tmp/setup.sh
+# Run setup script
+bash /root/setup.sh
 
 EOF
   )
@@ -84,7 +81,6 @@ EOF
     ignore_changes = [ami]
   }
 }
-
 
 # ELASTIC IP
 
