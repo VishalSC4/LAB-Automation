@@ -76,7 +76,7 @@ export container_memory=${var.container_memory}
 export container_cpu=${var.container_cpu}
 
 # Download setup script from GitHub
-curl -o /tmp/setup.sh https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/cloud-lab/main/scripts/setup.sh
+curl -o /tmp/setup.sh https://raw.githubusercontent.com/VishalSC4/LAB-Automation/main/scripts/setup.sh
 
 chmod +x /tmp/setup.sh
 
