@@ -4,10 +4,6 @@ set -e
 
 echo "===== CLOUD LAB SETUP STARTED ====="
 
-########################################
-# Load variables safely
-########################################
-
 source /root/lab.env
 
 STUDENT_COUNT=${student_count:-10}
@@ -17,7 +13,7 @@ CONTAINER_CPU=${container_cpu:-0.5}
 CREDENTIALS_JSON=$(cat /root/credentials.json)
 
 ########################################
-# Ensure Docker ready
+# Wait for Docker
 ########################################
 
 until docker info >/dev/null 2>&1; do
@@ -26,7 +22,7 @@ until docker info >/dev/null 2>&1; do
 done
 
 ########################################
-# Network setup
+# Network
 ########################################
 
 docker network inspect student-network >/dev/null 2>&1 || docker network create student-network
@@ -39,7 +35,7 @@ mkdir -p /opt/cloud-lab
 cd /opt/cloud-lab
 
 ########################################
-# Dockerfile
+# Dockerfile (with nginx installed)
 ########################################
 
 cat << 'EOF' > Dockerfile
@@ -50,19 +46,20 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
     openssh-server \
     sudo \
+    nginx \
     curl \
     vim \
     nano \
  && mkdir /var/run/sshd \
  && rm -rf /var/lib/apt/lists/*
 
-EXPOSE 22
+EXPOSE 22 80
 
-CMD ["/usr/sbin/sshd","-D"]
+CMD service nginx start && /usr/sbin/sshd -D
 EOF
 
 ########################################
-# Build image (only if not exists)
+# Build image
 ########################################
 
 docker image inspect student-lab:latest >/dev/null 2>&1 || docker build -t student-lab:latest .
@@ -77,16 +74,16 @@ for i in $(seq 1 $STUDENT_COUNT); do
 
   STUDENT="student$i"
   SSH_PORT=$((2200 + i))
+  HTTP_PORT=$((8000 + i))
 
   PASSWORD=$(echo "$CREDENTIALS_JSON" | jq -r ".[$((i-1))].password")
 
-  # FIX: never skip container
   if [[ -z "$PASSWORD" || "$PASSWORD" == "null" || ${#PASSWORD} -lt 8 ]]; then
     PASSWORD="Student@123"
     echo "Using default password for $STUDENT"
   fi
 
-  echo "Creating $STUDENT..."
+  echo "Creating $STUDENT (SSH:$SSH_PORT HTTP:$HTTP_PORT)..."
 
   mkdir -p /lab/$STUDENT
 
@@ -100,10 +97,11 @@ for i in $(seq 1 $STUDENT_COUNT); do
     --cpus=$CONTAINER_CPU \
     --restart unless-stopped \
     -p $SSH_PORT:22 \
+    -p $HTTP_PORT:80 \
     -v /lab/$STUDENT:/home/student \
     student-lab:latest
 
-  sleep 2
+  sleep 3
 
   docker exec $STUDENT bash -c "
     useradd -m -s /bin/bash -G sudo student || true
