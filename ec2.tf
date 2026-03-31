@@ -44,58 +44,110 @@ resource "aws_instance" "lab_server" {
 #!/bin/bash
 set -xe
 
-# Log everything
 exec > /var/log/user-data.log 2>&1
 
 echo "===== USER DATA START ====="
 
-# Wait for network
-sleep 30
+########################################
+# Install base packages
+########################################
 
-# Install dependencies
 apt-get update -y
 apt-get install -y docker.io jq curl
 
-# Enable Docker
 systemctl enable docker
 systemctl start docker
 
-# Wait until Docker is ready
-until docker info >/dev/null 2>&1; do
-  echo "Waiting for Docker..."
-  sleep 5
-done
+########################################
+# Save credentials
+########################################
 
-echo "Docker is ready"
-
-# Save credentials securely
 cat <<CREDENTIALS > /root/credentials.json
 ${local.credentials_json}
 CREDENTIALS
 
 chmod 600 /root/credentials.json
 
-# Export environment variables
-cat <<ENV >> /etc/environment
+########################################
+# Save env variables
+########################################
+
+cat <<ENV > /root/lab.env
 student_count=${var.student_count}
 container_memory=${var.container_memory}
 container_cpu=${var.container_cpu}
 ENV
 
+########################################
+# Create systemd service
+########################################
+
+cat <<SERVICE > /etc/systemd/system/lab-setup.service
+[Unit]
+Description=Cloud Lab Setup
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/root/run-setup.sh
+RemainAfterExit=true
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+########################################
+# Create run script
+########################################
+
+cat <<'SCRIPT' > /root/run-setup.sh
+#!/bin/bash
+set -e
+
+exec > /var/log/lab-setup.log 2>&1
+
+echo "===== LAB SETUP START ====="
+
+# Load variables safely
+source /root/lab.env
+
+# Wait for Docker (critical fix)
+until docker info >/dev/null 2>&1; do
+  echo "Waiting for Docker..."
+  sleep 5
+done
+
+echo "Docker ready"
+
 # Download setup script with retry
 for i in {1..5}; do
   curl -fsSL https://raw.githubusercontent.com/VishalSC4/LAB-Automation/main/scripts/setup.sh -o /root/setup.sh && break
-  echo "Retrying script download..."
+  echo "Retry download..."
   sleep 5
 done
 
 chmod +x /root/setup.sh
 
-# Run setup script
+# Run setup
 bash /root/setup.sh
 
-echo "===== USER DATA END ====="
+echo "===== LAB SETUP COMPLETE ====="
+SCRIPT
 
+chmod +x /root/run-setup.sh
+
+########################################
+# Start service
+########################################
+
+systemctl daemon-reexec
+systemctl daemon-reload
+systemctl enable lab-setup.service
+systemctl start lab-setup.service
+
+echo "===== USER DATA END ====="
 EOF
   )
 
