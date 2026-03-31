@@ -48,10 +48,6 @@ exec > /var/log/user-data.log 2>&1
 
 echo "===== USER DATA START ====="
 
-########################################
-# Install base packages
-########################################
-
 apt-get update -y
 apt-get install -y docker.io jq curl
 
@@ -99,7 +95,7 @@ WantedBy=multi-user.target
 SERVICE
 
 ########################################
-# Create run script
+# Create runner script
 ########################################
 
 cat <<'SCRIPT' > /root/run-setup.sh
@@ -110,10 +106,9 @@ exec > /var/log/lab-setup.log 2>&1
 
 echo "===== LAB SETUP START ====="
 
-# Load variables safely
 source /root/lab.env
 
-# Wait for Docker (critical fix)
+# Wait for Docker
 until docker info >/dev/null 2>&1; do
   echo "Waiting for Docker..."
   sleep 5
@@ -121,16 +116,14 @@ done
 
 echo "Docker ready"
 
-# Download setup script with retry
+# Download setup script
 for i in {1..5}; do
   curl -fsSL https://raw.githubusercontent.com/VishalSC4/LAB-Automation/main/scripts/setup.sh -o /root/setup.sh && break
-  echo "Retry download..."
   sleep 5
 done
 
 chmod +x /root/setup.sh
 
-# Run setup
 bash /root/setup.sh
 
 echo "===== LAB SETUP COMPLETE ====="
