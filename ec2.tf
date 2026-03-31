@@ -1,4 +1,6 @@
+########################################
 # IAM ROLE
+########################################
 
 resource "aws_iam_role" "ec2_role" {
   name = "${var.project_name}-ec2-role"
@@ -20,7 +22,9 @@ resource "aws_iam_instance_profile" "ec2_profile" {
   role = aws_iam_role.ec2_role.name
 }
 
+########################################
 # EC2 INSTANCE
+########################################
 
 resource "aws_instance" "lab_server" {
   ami                    = data.aws_ami.ubuntu.id
@@ -38,7 +42,15 @@ resource "aws_instance" "lab_server" {
 
   user_data = base64encode(<<EOF
 #!/bin/bash
-set -e
+set -xe
+
+# Log everything
+exec > /var/log/user-data.log 2>&1
+
+echo "===== USER DATA START ====="
+
+# Wait for network
+sleep 30
 
 # Install dependencies
 apt-get update -y
@@ -48,27 +60,41 @@ apt-get install -y docker.io jq curl
 systemctl enable docker
 systemctl start docker
 
-# Wait for Docker
-sleep 15
+# Wait until Docker is ready
+until docker info >/dev/null 2>&1; do
+  echo "Waiting for Docker..."
+  sleep 5
+done
 
-# Save credentials securely (NOT logging)
+echo "Docker is ready"
+
+# Save credentials securely
 cat <<CREDENTIALS > /root/credentials.json
 ${local.credentials_json}
 CREDENTIALS
 
 chmod 600 /root/credentials.json
 
-# Export variables (safe)
-echo "student_count=${var.student_count}" >> /etc/environment
-echo "container_memory=${var.container_memory}" >> /etc/environment
-echo "container_cpu=${var.container_cpu}" >> /etc/environment
+# Export environment variables
+cat <<ENV >> /etc/environment
+student_count=${var.student_count}
+container_memory=${var.container_memory}
+container_cpu=${var.container_cpu}
+ENV
 
-# Download setup script
-curl -fsSL -o /root/setup.sh https://raw.githubusercontent.com/VishalSC4/LAB-Automation/main/scripts/setup.sh
+# Download setup script with retry
+for i in {1..5}; do
+  curl -fsSL https://raw.githubusercontent.com/VishalSC4/LAB-Automation/main/scripts/setup.sh -o /root/setup.sh && break
+  echo "Retrying script download..."
+  sleep 5
+done
+
 chmod +x /root/setup.sh
 
 # Run setup script
 bash /root/setup.sh
+
+echo "===== USER DATA END ====="
 
 EOF
   )
@@ -82,7 +108,9 @@ EOF
   }
 }
 
+########################################
 # ELASTIC IP
+########################################
 
 resource "aws_eip" "lab_server" {
   instance = aws_instance.lab_server.id
