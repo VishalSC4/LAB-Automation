@@ -4,7 +4,7 @@ set -e
 
 echo "===== CLOUD LAB SETUP STARTED ====="
 
-# Load environment variables
+# Load env variables
 source /etc/environment
 
 STUDENT_COUNT=${student_count:-10}
@@ -13,24 +13,34 @@ CONTAINER_CPU=${container_cpu:-0.5}
 
 CREDENTIALS_JSON=$(cat /root/credentials.json)
 
-# Install Docker if not exists
-apt-get update -y
-apt-get install -y docker.io jq
+########################################
+# Ensure Docker is ready
+########################################
 
-systemctl enable docker
-systemctl start docker
+systemctl restart docker
 
-sleep 10
+until docker info >/dev/null 2>&1; do
+  echo "Waiting for Docker inside script..."
+  sleep 5
+done
 
-# Create network
+########################################
+# Network setup
+########################################
+
 docker network inspect student-network >/dev/null 2>&1 || docker network create student-network
 
-# Create base directory
-mkdir -p /opt/cloud-lab
+########################################
+# Workspace setup
+########################################
 
+mkdir -p /opt/cloud-lab
 cd /opt/cloud-lab
 
+########################################
 # Dockerfile
+########################################
+
 cat << 'EOF' > Dockerfile
 FROM ubuntu:22.04
 
@@ -50,8 +60,15 @@ EXPOSE 22
 CMD ["/usr/sbin/sshd","-D"]
 EOF
 
+########################################
 # Build image
+########################################
+
 docker build -t student-lab:latest .
+
+########################################
+# Create Containers
+########################################
 
 echo "Creating student containers..."
 
@@ -62,17 +79,21 @@ for i in $(seq 1 $STUDENT_COUNT); do
 
   PASSWORD=$(echo "$CREDENTIALS_JSON" | jq -r ".[$((i-1))].password")
 
-  # Validate password
-  if [[ -z "$PASSWORD" || ${#PASSWORD} -lt 8 ]]; then
-    echo "Skipping $STUDENT due to invalid password"
-    continue
+  # FIX: fallback password instead of skipping
+  if [[ -z "$PASSWORD" || "$PASSWORD" == "null" || ${#PASSWORD} -lt 8 ]]; then
+    PASSWORD="Student@123"
+    echo "⚠️ Using default password for $STUDENT"
   fi
 
-  echo "Creating $STUDENT..."
+  echo "Creating $STUDENT on port $SSH_PORT..."
 
-  # Create persistent volume
+  # Create persistent directory
   mkdir -p /lab/$STUDENT
 
+  # Remove existing container (idempotent)
+  docker rm -f $STUDENT >/dev/null 2>&1 || true
+
+  # Run container
   docker run -d \
     --name $STUDENT \
     --hostname $STUDENT-lab \
@@ -86,7 +107,7 @@ for i in $(seq 1 $STUDENT_COUNT); do
 
   sleep 2
 
-  # Configure user
+  # Configure user inside container
   docker exec $STUDENT bash -c "
     useradd -m -s /bin/bash -G sudo student || true
     echo student:$PASSWORD | chpasswd
@@ -94,6 +115,10 @@ for i in $(seq 1 $STUDENT_COUNT); do
   "
 
 done
+
+########################################
+# Status
+########################################
 
 echo "===== RUNNING CONTAINERS ====="
 docker ps
