@@ -4,8 +4,11 @@ set -e
 
 echo "===== CLOUD LAB SETUP STARTED ====="
 
-# Load env variables
-source /etc/environment
+########################################
+# Load variables safely
+########################################
+
+source /root/lab.env
 
 STUDENT_COUNT=${student_count:-10}
 CONTAINER_MEMORY=${container_memory:-512m}
@@ -14,13 +17,11 @@ CONTAINER_CPU=${container_cpu:-0.5}
 CREDENTIALS_JSON=$(cat /root/credentials.json)
 
 ########################################
-# Ensure Docker is ready
+# Ensure Docker ready
 ########################################
 
-systemctl restart docker
-
 until docker info >/dev/null 2>&1; do
-  echo "Waiting for Docker inside script..."
+  echo "Waiting for Docker..."
   sleep 5
 done
 
@@ -31,7 +32,7 @@ done
 docker network inspect student-network >/dev/null 2>&1 || docker network create student-network
 
 ########################################
-# Workspace setup
+# Workspace
 ########################################
 
 mkdir -p /opt/cloud-lab
@@ -61,13 +62,13 @@ CMD ["/usr/sbin/sshd","-D"]
 EOF
 
 ########################################
-# Build image
+# Build image (only if not exists)
 ########################################
 
-docker build -t student-lab:latest .
+docker image inspect student-lab:latest >/dev/null 2>&1 || docker build -t student-lab:latest .
 
 ########################################
-# Create Containers
+# Create containers
 ########################################
 
 echo "Creating student containers..."
@@ -79,21 +80,18 @@ for i in $(seq 1 $STUDENT_COUNT); do
 
   PASSWORD=$(echo "$CREDENTIALS_JSON" | jq -r ".[$((i-1))].password")
 
-  # FIX: fallback password instead of skipping
+  # FIX: never skip container
   if [[ -z "$PASSWORD" || "$PASSWORD" == "null" || ${#PASSWORD} -lt 8 ]]; then
     PASSWORD="Student@123"
-    echo "⚠️ Using default password for $STUDENT"
+    echo "Using default password for $STUDENT"
   fi
 
-  echo "Creating $STUDENT on port $SSH_PORT..."
+  echo "Creating $STUDENT..."
 
-  # Create persistent directory
   mkdir -p /lab/$STUDENT
 
-  # Remove existing container (idempotent)
   docker rm -f $STUDENT >/dev/null 2>&1 || true
 
-  # Run container
   docker run -d \
     --name $STUDENT \
     --hostname $STUDENT-lab \
@@ -107,7 +105,6 @@ for i in $(seq 1 $STUDENT_COUNT); do
 
   sleep 2
 
-  # Configure user inside container
   docker exec $STUDENT bash -c "
     useradd -m -s /bin/bash -G sudo student || true
     echo student:$PASSWORD | chpasswd
@@ -117,7 +114,7 @@ for i in $(seq 1 $STUDENT_COUNT); do
 done
 
 ########################################
-# Status
+# Done
 ########################################
 
 echo "===== RUNNING CONTAINERS ====="
