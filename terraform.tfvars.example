@@ -1,0 +1,18 @@
+enable_github_sync         = true
+enable_repo_bootstrap      = true
+
+# Option 1: one repo per student
+github_org                 = "your-github-username-or-org"
+github_repo_prefix         = "student-lab"
+github_branch              = "main"
+
+# Option 2: single shared repo with one branch per student
+# github_repository_url    = "https://github.com/your-user/your-repo.git"
+# github_student_branch_prefix = "student-"
+
+# Store your GitHub token in AWS SSM Parameter Store and put the parameter name here
+github_token_ssm_parameter = "/cloud-lab/github-token"
+
+# Optional commit identity for auto-sync commits
+github_commit_author_name  = "Cloud Lab Bot"
+github_commit_author_email = "cloud-lab-bot@example.com"
